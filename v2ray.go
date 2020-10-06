@@ -153,11 +153,7 @@ func RequireFeatures(ctx context.Context, callback interface{}) error {
 	return v.RequireFeatures(callback)
 }
 
-// New returns a new V2Ray instance based on given configuration.
-// The instance is not started at this point.
-// To ensure V2Ray instance works properly, the config must contain one Dispatcher, one InboundHandlerManager and one OutboundHandlerManager. Other features are optional.
-func New(config *Config) (*Instance, error) {
-	var server = &Instance{}
+func initInstance(config *Config,  server *Instance) (*Instance, error) {
 
 	if config.Transport != nil {
 		features.PrintDeprecatedFeatureWarning("global transport settings")
@@ -213,6 +209,15 @@ func New(config *Config) (*Instance, error) {
 	}
 
 	return server, nil
+}
+
+// New returns a new V2Ray instance based on given configuration.
+// The instance is not started at this point.
+// To ensure V2Ray instance works properly, the config must contain one Dispatcher, one InboundHandlerManager and one OutboundHandlerManager. Other features are optional.
+func New(config *Config) (*Instance, error) {
+	var server = &Instance{}
+
+	return initInstance(config, server)
 }
 
 // Type implements common.HasType.
@@ -313,6 +318,63 @@ func (s *Instance) Start() error {
 
 	s.running = true
 	for _, f := range s.features {
+		if err := f.Start(); err != nil {
+			return err
+		}
+	}
+
+	newError("V2Ray ", Version(), " started").AtWarning().WriteToLog()
+
+	return nil
+}
+
+func (s *Instance) Reload(config *Config) error {
+
+	s.access.Lock()
+	defer s.access.Unlock()
+
+	ctx := context.Background()
+
+	ctx = context.WithValue(ctx, v2rayKey, s)
+
+	s.running = false
+	var errors []interface{}
+	for _, f := range s.features {
+		if _, ok := f.(common.Reloadable); ok  {
+			continue
+		}
+		if err := f.Close(); err != nil {
+			errors = append(errors, err)
+		}
+	}
+	if len(errors) > 0 {
+		return newError("failed to close all features").Base(newError(serial.Concat(errors...)))
+	}
+
+	reloadableFeatures := make([]features.Feature, 0, 0)
+	for _, f := range s.features {
+		if _, ok := f.(common.Reloadable); ok {
+			reloadableFeatures = append(reloadableFeatures, f)
+		}
+	}
+
+	// 清空之前的记录
+	s.features = s.features[0:0]
+	s.featureResolutions = s.featureResolutions[0:0]
+
+	if _, err := initInstance(config, s); err!=nil {
+		return err
+	}
+	s.running = true
+	for idx, f := range s.features {
+		if r, ok := f.(common.Reloadable); ok {
+			oldFeature := getFeature(reloadableFeatures, reflect.TypeOf(f.Type()))
+			oldFeature.(common.Reloadable).Reload(ctx, r.GetInitConfig())
+			s.features[idx] = oldFeature
+			// todo 需要行的feature需要引用这个旧的feature的问题
+
+			continue
+		}
 		if err := f.Start(); err != nil {
 			return err
 		}
