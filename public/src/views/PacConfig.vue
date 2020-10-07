@@ -9,6 +9,10 @@
                           placeholder="代理地址，格式为: PROXY localhost:10809;SOCK5 localhost:10808;SOCKS 127.0.0.1:1080; DIRECT;"
                           v-model="config.proxy"/>
             </el-form-item>
+            <el-form-item label="gfw下载代理">
+                <el-input placeholder="下载gfwlist文件时使用的http代理地址, http://localhost:20809"
+                          v-model="config.gfwProxy"/>
+            </el-form-item>
             <el-form-item label="自定义规则">
                 <el-input type="textarea"  rows="8"
                           v-model="config.userRule"/>
@@ -43,6 +47,7 @@
                 config:{
                     proxy:"",
                     userRule:"",
+                    gfwProxy:"",
                 }
             }
         },

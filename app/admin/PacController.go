@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,7 @@ type PacController struct {
 type PacConfig struct {
 	Proxy    string `json:"proxy"`
 	UserRule string `json:"userRule"`
+	GfwProxy string `json:"gfwProxy"`
 }
 
 func (ctl *PacController) InitRouter(admin *Server, httpRouter gin.IRouter) {
@@ -75,10 +77,10 @@ func (ctl *PacController) GetPacConfig(gCtx *gin.Context) {
 	gCtx.Status(200)
 	gCtx.Writer.Write(configContent)
 }
-func generateV2rayPac(proxy, userRule string) error {
+func generateV2rayPac(proxy, userRule, gfwProxy string) error {
 	pacGfwFile := getPacGfwFile()
 	if !fileExists(pacGfwFile) {
-		if err := downloadGfwPac(); err != nil {
+		if err := downloadGfwPac(gfwProxy); err != nil {
 			return err
 		}
 	}
@@ -94,8 +96,19 @@ func generateV2rayPac(proxy, userRule string) error {
 	err := ioutil.WriteFile(getPacV2rayFile(), gfwContent, 0644)
 	return err
 }
-func downloadGfwPac() error {
-	resp, err := http.Get(GfwlistUrl)
+func downloadGfwPac(gfwProxy string) error {
+	var client *http.Client
+	if gfwProxy == "" {
+		client = http.DefaultClient
+	} else {
+		log.Info("使用代理%s下载gfwlist:%s", gfwProxy, GfwlistUrl)
+		transport := &http.Transport{Proxy: func(_ *http.Request) (*url.URL, error) {
+			return url.Parse(gfwProxy)
+		}}
+		client = &http.Client{Transport: transport}
+	}
+
+	resp, err := client.Get(GfwlistUrl)
 	if err != nil {
 		return err
 	}
@@ -130,17 +143,18 @@ func downloadGfwPac() error {
 	return err
 }
 func (ctl *PacController) UpdatePac(gCtx *gin.Context) {
+	config := PacConfig{}
+	gCtx.ShouldBindJSON(&config)
 
-	err := downloadGfwPac()
+	err := downloadGfwPac(config.GfwProxy)
 	if err != nil {
 		gCtx.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	config := PacConfig{}
-	err = gCtx.ShouldBindJSON(&config)
-	if err != nil && config.Proxy != "" {
+
+	if config.Proxy != "" {
 		saveConfig(&config)
-		generateV2rayPac(config.Proxy, config.UserRule)
+		generateV2rayPac(config.Proxy, config.UserRule, config.GfwProxy)
 	}
 	gCtx.JSON(200, gin.H{"msg": "下载gfwlist成功"})
 	return
@@ -157,7 +171,7 @@ func (ctl *PacController) SavePac(gCtx *gin.Context) {
 	config := PacConfig{}
 	gCtx.BindJSON(&config)
 	saveConfig(&config)
-	err := generateV2rayPac(config.Proxy, config.UserRule)
+	err := generateV2rayPac(config.Proxy, config.UserRule, config.GfwProxy)
 	if err != nil {
 		gCtx.Status(500)
 		gCtx.Writer.WriteString(err.Error())
