@@ -1,3 +1,7 @@
+# Move To https://github.com/v2fly/v2ray-core
+
+***
+
 # Project V
 
 [![GitHub Test Badge][1]][2] [![codecov.io][3]][4] [![GoDoc][5]][6] [![codebeat][7]][8] [![Downloads][9]][10] [![Downloads][11]][12]
